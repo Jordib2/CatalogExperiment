@@ -1,4 +1,9 @@
 <Solution>
+  <Folder Name="/Docker/">
+    <File Path=".dockerignore" />
+    <File Path="docker-compose.yml" />
+    <File Path="Dockerfile" />
+  </Folder>
   <Project Path="CatalogExperiment.Api.Tests/CatalogExperiment.Api.Tests.csproj" />
   <Project Path="CatalogExperiment.Api/CatalogExperiment.Api.csproj" />
   <Project Path="CatalogExperiment.Core/CatalogExperiment.Core.csproj" />

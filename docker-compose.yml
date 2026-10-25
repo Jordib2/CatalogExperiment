@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: catalog
+      POSTGRES_PASSWORD: catalog_dev_pw
+      POSTGRES_DB: catalogdb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U catalog -d catalogdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  redis:
+    image: redis:7
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  api:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__CatalogDb: "Host=postgres;Port=5432;Database=catalogdb;Username=catalog;Password=catalog_dev_pw"
+      Caching__Enabled: "true"
+      Caching__RedisConnectionString: "redis:6379"
+      Caching__TtlSeconds: "60"
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 512M
+
+volumes:
+  pgdata:

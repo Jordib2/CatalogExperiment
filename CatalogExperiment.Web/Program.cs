@@ -46,6 +46,9 @@ else
 
 builder.Services.AddScoped<ICatalogService, CatalogService>();
 
+builder.Services.AddHealthChecks()
+    .AddNpgSql(builder.Configuration.GetConnectionString("CatalogDb")!);
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
@@ -60,12 +63,17 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsEnvironment("Docker"))
+{
+    app.UseHttpsRedirection();
+}
+
 app.UseRouting();
 app.UseAuthorization();
 
 app.MapStaticAssets();
 app.MapRazorPages().WithStaticAssets();
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 app.Run();
