@@ -1,0 +1,11 @@
+<Solution>
+  <Project Path="CatalogExperiment.Api.Tests/CatalogExperiment.Api.Tests.csproj" />
+  <Project Path="CatalogExperiment.Api/CatalogExperiment.Api.csproj" />
+  <Project Path="CatalogExperiment.Core/CatalogExperiment.Core.csproj" />
+  <Project Path="CatalogExperiment.Domain/CatalogExperiment.Domain.csproj" />
+  <Project Path="CatalogExperiment.Dtos/CatalogExperiment.Dtos.csproj" />
+  <Project Path="CatalogExperiment.Persistence/CatalogExperiment.Persistence.csproj" />
+  <Project Path="CatalogExperiment.Services.Tests/CatalogExperiment.Services.Tests.csproj" />
+  <Project Path="CatalogExperiment.Services/CatalogExperiment.Services.csproj" />
+  <Project Path="CatalogExperiment.Web/CatalogExperiment.Web.csproj" />
+</Solution>

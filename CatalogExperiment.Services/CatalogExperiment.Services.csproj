@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CatalogExperiment.Core\CatalogExperiment.Core.csproj" />
+    <ProjectReference Include="..\CatalogExperiment.Domain\CatalogExperiment.Domain.csproj" />
+    <ProjectReference Include="..\CatalogExperiment.Dtos\CatalogExperiment.Dtos.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Interfaces\" />
+    <Folder Include="Mappings\" />
+  </ItemGroup>
+
+</Project>

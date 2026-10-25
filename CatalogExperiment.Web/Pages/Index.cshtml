@@ -1,0 +1,50 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Filmcatalogus";
+    var genres = new[] { "Sci-Fi", "Action", "Drama", "Comedy", "Horror", "Thriller", "Romance", "Documentary" };
+}
+
+<h1 class="display-5 mb-3">Filmcatalogus</h1>
+
+<p class="text-muted">
+    @Model.Result.TotalCount films gevonden, pagina @Model.Result.Page van @Model.Result.TotalPages,
+    opgehaald in <strong>@Model.ElapsedMilliseconds.ToString("F1") ms</strong>
+</p>
+
+<p>
+    <a asp-page="Index" class="btn btn-sm btn-outline-secondary">Alle genres</a>
+    @foreach (var g in genres)
+    {
+        <a asp-page="Index" asp-route-Genre="@g" class="btn btn-sm btn-outline-primary">@g</a>
+    }
+</p>
+
+<table class="table table-striped table-hover">
+    <thead>
+        <tr><th>#</th><th>Titel</th><th>Jaar</th><th>Genre</th><th>Beschrijving</th></tr>
+    </thead>
+    <tbody>
+        @foreach (var film in Model.Result.Items)
+        {
+            <tr>
+                <td>@film.Id</td>
+                <td>@film.Title</td>
+                <td>@film.ReleaseYear</td>
+                <td>@film.Genre</td>
+                <td>@film.Description</td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<nav>
+    @if (Model.Result.Page > 1)
+    {
+        <a asp-page="Index" asp-route-PageNumber="@(Model.Result.Page - 1)" asp-route-Genre="@Model.Genre" class="btn btn-outline-secondary">Vorige</a>
+    }
+    @if (Model.Result.Page < Model.Result.TotalPages)
+    {
+        <a asp-page="Index" asp-route-PageNumber="@(Model.Result.Page + 1)" asp-route-Genre="@Model.Genre" class="btn btn-outline-secondary">Volgende</a>
+    }
+</nav>
