@@ -36,8 +36,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Docker
       ConnectionStrings__CatalogDb: "Host=postgres;Port=5432;Database=catalogdb;Username=catalog;Password=catalog_dev_pw"
-      Caching__Enabled: "true"
-      Caching__RedisConnectionString: "redis:6379"
+      Caching__Enabled: "${CACHING_ENABLED:-true}"
+      Caching__RedisConnectionString: "redis:6379,abortConnect=false,connectTimeout=500,syncTimeout=500,asyncTimeout=500"
       Caching__TtlSeconds: "60"
     ports:
       - "8080:8080"

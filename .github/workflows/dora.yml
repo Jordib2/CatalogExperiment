@@ -1,0 +1,68 @@
+name: DORA metrics
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  dora:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect data
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow CI --branch main --event push --limit 200 --json conclusion,headSha,createdAt,updatedAt > runs.json
+          gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 200 --json mergedAt,mergeCommit,commits > prs.json
+      - name: Compute and report
+        run: |
+          python3 - <<'EOF'
+          import json, os, statistics
+          import datetime as dt
+          from collections import defaultdict
+
+          def t(s):
+              return dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+          runs = json.load(open("runs.json"))
+          prs = json.load(open("prs.json"))
+          weeks = defaultdict(lambda: {"ok": 0, "fail": 0, "lead": []})
+          ok_by_sha = {}
+
+          for r in runs:
+              wk = t(r["createdAt"]).strftime("%G-W%V")
+              if r["conclusion"] == "success":
+                  weeks[wk]["ok"] += 1
+                  ok_by_sha[r["headSha"]] = t(r["updatedAt"])
+              elif r["conclusion"] == "failure":
+                  weeks[wk]["fail"] += 1
+
+          for pr in prs:
+              sha = (pr.get("mergeCommit") or {}).get("oid")
+              if sha in ok_by_sha and pr["commits"]:
+                  first = min(t(c["committedDate"]) for c in pr["commits"])
+                  wk = t(pr["mergedAt"]).strftime("%G-W%V")
+                  weeks[wk]["lead"].append((ok_by_sha[sha] - first).total_seconds() / 3600)
+
+          lines = [
+              "| Week | Successful deploys | Failed | Change failure rate | Median lead time (h) |",
+              "|---|---|---|---|---|",
+          ]
+          for wk in sorted(weeks):
+              w = weeks[wk]
+              total = w["ok"] + w["fail"]
+              cfr = f"{100 * w['fail'] / total:.0f}%" if total else "-"
+              lead = f"{statistics.median(w['lead']):.1f}" if w["lead"] else "-"
+              lines.append(f"| {wk} | {w['ok']} | {w['fail']} | {cfr} | {lead} |")
+
+          out = "\n".join(lines)
+          print(out)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(out + "\n")
+          EOF

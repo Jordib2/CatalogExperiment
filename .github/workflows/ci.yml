@@ -5,29 +5,92 @@ on:
     branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
-  build-and-test:
+  build:
+    name: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Stage 1 - build Docker image from a clean checkout
+        run: docker build -t catalog-api .
 
+  unit-tests:
+    name: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      - name: Stage 2 - unit tests
+        run: dotnet test CatalogExperiment.Services.Tests -c Release
 
-      - name: Restore
-        run: dotnet restore CatalogExperiment.slnx
-
-      - name: Build
-        run: dotnet build CatalogExperiment.slnx -c Release --no-restore
-
-      - name: Unit tests
-        run: dotnet test CatalogExperiment.Services.Tests -c Release --no-build
-
-  docker-build:
+  integration-tests:
+    name: integration-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build Docker image
-        run: docker build -t catalog-api .
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Unit tests with coverage
+        run: dotnet test CatalogExperiment.Services.Tests -c Release --collect:"XPlat Code Coverage" --results-directory ./TestResults
+      - name: Stage 3 - integration tests (real Postgres and Redis via Testcontainers)
+        run: dotnet test CatalogExperiment.Api.Tests -c Release --filter "FullyQualifiedName~Integration" --collect:"XPlat Code Coverage" --results-directory ./TestResults
+      - name: Merge coverage and enforce 70% (NFR6)
+        run: |
+          dotnet tool install -g dotnet-reportgenerator-globaltool
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          reportgenerator -reports:"TestResults/**/coverage.cobertura.xml" -targetdir:coverage -reporttypes:"Cobertura;MarkdownSummaryGithub" -assemblyfilters:"+CatalogExperiment.*;-*.Tests" -classfilters:"+*CatalogService;+*CachedCatalogRepository;+*SqlCatalogRepository"
+          cat coverage/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'EOF'
+          import sys
+          import xml.etree.ElementTree as ET
+          rate = float(ET.parse("coverage/Cobertura.xml").getroot().get("line-rate")) * 100
+          print(f"Line coverage of catalogue and cache logic: {rate:.1f}%")
+          sys.exit(0 if rate >= 70 else 1)
+          EOF
+
+  e2e-tests:
+    name: e2e-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Stage 4 - end-to-end test (frontend + API + Postgres + Redis)
+        run: dotnet test CatalogExperiment.Api.Tests -c Release --filter "FullyQualifiedName~EndToEnd"
+
+  deploy-check:
+    name: deploy-check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build, unit-tests, integration-tests, e2e-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage 5 - start the stack with CPU and memory limits
+        run: docker compose up -d --build
+      - name: Wait for the health endpoint
+        run: |
+          for i in $(seq 1 30); do
+            status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health || true)
+            if [ "$status" = "200" ]; then echo "Health check OK"; exit 0; fi
+            sleep 5
+          done
+          docker compose logs api
+          echo "Failed deploy: health check never became OK"
+          exit 1
+      - name: Verify the container limits
+        run: docker inspect --format '{{.Name}} cpus={{.HostConfig.NanoCpus}} memory={{.HostConfig.Memory}}' $(docker compose ps -q)
+      - name: Smoke test the catalogue endpoint
+        run: curl -fsS "http://localhost:8080/api/catalogue?page=1&pageSize=20" | head -c 300
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v

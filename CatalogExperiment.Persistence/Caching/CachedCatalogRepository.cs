@@ -21,25 +21,39 @@ public sealed class CachedCatalogRepository(
     {
         var key = $"catalog:page:{query.Page}:{query.PageSize}:{query.Genre?.ToLowerInvariant() ?? "all"}";
 
-        var cachedJson = await cache.GetStringAsync(key, cancellationToken);
-
-        if (cachedJson is not null)
+        try
         {
-            var cached = JsonSerializer.Deserialize<PagedResult<Film>>(cachedJson);
+            var cachedJson = await cache.GetStringAsync(key, cancellationToken);
 
-            if (cached is not null)
+            if (cachedJson is not null)
             {
-                return cached;
+                var cached = JsonSerializer.Deserialize<PagedResult<Film>>(cachedJson);
+
+                if (cached is not null)
+                {
+                    return cached;
+                }
             }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Redis unavailable: fall back to the database (NFR4).
         }
 
         var result = await inner.GetPageAsync(query, cancellationToken);
 
-        await cache.SetStringAsync(
-            key,
-            JsonSerializer.Serialize(result),
-            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = timeToLive },
-            cancellationToken);
+        try
+        {
+            await cache.SetStringAsync(
+                key,
+                JsonSerializer.Serialize(result),
+                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = timeToLive },
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Redis unavailable: serve the result without caching it.
+        }
 
         return result;
     }
