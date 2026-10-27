@@ -14,24 +14,37 @@ jobs:
   dora:
     runs-on: ubuntu-latest
     steps:
-      - name: Collect data
+      - name: Compute and report DORA metrics
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh run list --repo "$GITHUB_REPOSITORY" --workflow CI --branch main --event push --limit 200 --json conclusion,headSha,createdAt,updatedAt > runs.json
-          gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 200 --json mergedAt,mergeCommit,commits > prs.json
-      - name: Compute and report
-        run: |
           python3 - <<'EOF'
-          import json, os, statistics
           import datetime as dt
+          import json
+          import os
+          import statistics
+          import subprocess
           from collections import defaultdict
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          def gh(*args):
+              return subprocess.check_output(["gh", *args], text=True)
 
           def t(s):
               return dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
 
-          runs = json.load(open("runs.json"))
-          prs = json.load(open("prs.json"))
+          runs = json.loads(gh(
+              "run", "list", "--repo", repo,
+              "--workflow", "CI", "--branch", "main", "--event", "push",
+              "--limit", "100",
+              "--json", "conclusion,headSha,createdAt,updatedAt"))
+
+          prs = json.loads(gh(
+              "pr", "list", "--repo", repo,
+              "--state", "merged", "--limit", "50",
+              "--json", "number,mergedAt,mergeCommit"))
+
           weeks = defaultdict(lambda: {"ok": 0, "fail": 0, "lead": []})
           ok_by_sha = {}
 
@@ -45,10 +58,21 @@ jobs:
 
           for pr in prs:
               sha = (pr.get("mergeCommit") or {}).get("oid")
-              if sha in ok_by_sha and pr["commits"]:
-                  first = min(t(c["committedDate"]) for c in pr["commits"])
-                  wk = t(pr["mergedAt"]).strftime("%G-W%V")
-                  weeks[wk]["lead"].append((ok_by_sha[sha] - first).total_seconds() / 3600)
+              if sha not in ok_by_sha:
+                  continue
+              try:
+                  out = gh(
+                      "api", f"repos/{repo}/pulls/{pr['number']}/commits",
+                      "--paginate", "--jq", ".[].commit.author.date")
+                  dates = [t(line) for line in out.split() if line]
+              except subprocess.CalledProcessError:
+                  continue
+              if not dates:
+                  continue
+              first_commit = min(dates)
+              wk = t(pr["mergedAt"]).strftime("%G-W%V")
+              hours = (ok_by_sha[sha] - first_commit).total_seconds() / 3600
+              weeks[wk]["lead"].append(hours)
 
           lines = [
               "| Week | Successful deploys | Failed | Change failure rate | Median lead time (h) |",
@@ -61,8 +85,8 @@ jobs:
               lead = f"{statistics.median(w['lead']):.1f}" if w["lead"] else "-"
               lines.append(f"| {wk} | {w['ok']} | {w['fail']} | {cfr} | {lead} |")
 
-          out = "\n".join(lines)
-          print(out)
+          report = "\n".join(lines)
+          print(report)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
-              f.write(out + "\n")
+              f.write("## DORA metrics\n\n" + report + "\n")
           EOF
