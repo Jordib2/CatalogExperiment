@@ -1,0 +1,78 @@
+name: Performance (lane C)
+
+on:
+  schedule:
+    - cron: "0 5 * * 0"
+  workflow_dispatch:
+    inputs:
+      test:
+        description: Which test to run
+        type: choice
+        options: [load, stress, outage]
+        default: load
+      caching:
+        description: Redis cache enabled
+        type: choice
+        options: ["true", "false"]
+        default: "true"
+      vus:
+        description: Virtual users (load test)
+        default: "100"
+
+env:
+  TEST: ${{ inputs.test || 'load' }}
+  CACHING_ENABLED: ${{ inputs.caching || 'true' }}
+  VUS: ${{ inputs.vus || '100' }}
+  BASE_URL: http://localhost:8080
+
+jobs:
+  k6:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: grafana/setup-k6-action@v1
+      - name: Start the stack
+        run: docker compose up -d --build
+      - name: Wait for the health endpoint
+        run: |
+          for i in $(seq 1 30); do
+            status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health || true)
+            if [ "$status" = "200" ]; then exit 0; fi
+            sleep 5
+          done
+          docker compose logs api
+          exit 1
+      - name: Warm-up (discarded)
+        run: DURATION=20s k6 run k6/load.js || true
+      - name: Stage 7 - load test, 3 runs
+        if: env.TEST == 'load'
+        run: |
+          mkdir -p results
+          for i in 1 2 3; do
+            k6 run --summary-export results/load-$i.json k6/load.js || true
+          done
+      - name: Stage 8 - stress test
+        if: env.TEST == 'stress'
+        run: |
+          mkdir -p results
+          k6 run --summary-export results/stress.json k6/stress.js || true
+      - name: Stage 9 - Redis outage test (60 s)
+        if: env.TEST == 'outage'
+        run: |
+          mkdir -p results
+          k6 run --summary-export results/outage.json k6/outage.js &
+          K6_PID=$!
+          sleep 30
+          docker compose stop redis
+          sleep 60
+          docker compose start redis
+          wait $K6_PID
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-results-${{ env.TEST }}-cache-${{ env.CACHING_ENABLED }}
+          path: results/
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v
