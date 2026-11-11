@@ -3,7 +3,7 @@ services:
     image: postgres:17
     environment:
       POSTGRES_USER: catalog
-      POSTGRES_PASSWORD: catalog_dev_pw
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
       POSTGRES_DB: catalogdb
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -35,7 +35,7 @@ services:
         condition: service_started
     environment:
       ASPNETCORE_ENVIRONMENT: Docker
-      ConnectionStrings__CatalogDb: "Host=postgres;Port=5432;Database=catalogdb;Username=catalog;Password=catalog_dev_pw"
+      ConnectionStrings__CatalogDb: "Host=postgres;Port=5432;Database=catalogdb;Username=catalog;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
       Caching__Enabled: "${CACHING_ENABLED:-true}"
       Caching__RedisConnectionString: "redis:6379,abortConnect=false,connectTimeout=500,syncTimeout=500,asyncTimeout=500"
       Caching__TtlSeconds: "60"
