@@ -10,6 +10,7 @@ on:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+
 jobs:
   build:
     name: build
@@ -74,6 +75,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Create a throw-away database password
+        run: |
+          PW=$(openssl rand -hex 16)
+          echo "::add-mask::$PW"
+          echo "POSTGRES_PASSWORD=$PW" >> "$GITHUB_ENV"
       - name: Stage 5 - start the stack with CPU and memory limits
         run: docker compose up -d --build
       - name: Wait for the health endpoint

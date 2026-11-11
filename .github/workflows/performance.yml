@@ -31,6 +31,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: grafana/setup-k6-action@v1
+      - name: Create a throw-away database password
+        run: |
+          PW=$(openssl rand -hex 16)
+          echo "::add-mask::$PW"
+          echo "POSTGRES_PASSWORD=$PW" >> "$GITHUB_ENV"
       - name: Start the stack
         run: docker compose up -d --build
       - name: Wait for the health endpoint
