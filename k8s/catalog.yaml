@@ -1,0 +1,151 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: catalog
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: catalog
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: catalog
+            - name: POSTGRES_DB
+              value: catalogdb
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: db-secret, key: POSTGRES_PASSWORD }
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "catalog", "-d", "catalogdb"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 250m, memory: 256Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: catalog
+spec:
+  selector: { app: postgres }
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: catalog
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            tcpSocket: { port: 6379 }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: catalog
+spec:
+  selector: { app: redis }
+  ports:
+    - port: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: catalog
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: api }
+  template:
+    metadata:
+      labels: { app: api }
+    spec:
+      containers:
+        - name: api
+          image: catalogexperiment-api:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: db-secret, key: POSTGRES_PASSWORD }
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Docker
+            - name: ConnectionStrings__CatalogDb
+              value: "Host=postgres;Port=5432;Database=catalogdb;Username=catalog;Password=$(DB_PASSWORD)"
+            - name: Caching__Enabled
+              value: "true"
+            - name: Caching__RedisConnectionString
+              value: "redis:6379,abortConnect=false,connectTimeout=500,syncTimeout=500,asyncTimeout=500"
+            - name: Caching__TtlSeconds
+              value: "60"
+          readinessProbe:
+            httpGet: { path: /health, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: 8080 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 500m, memory: 256Mi }
+            limits: { cpu: "2", memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: catalog
+spec:
+  type: LoadBalancer
+  selector: { app: api }
+  ports:
+    - port: 8081
+      targetPort: 8080
