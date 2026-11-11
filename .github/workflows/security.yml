@@ -1,0 +1,55 @@
+name: Security scans
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+jobs:
+  dependency-scan:
+    name: dependency-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Check NuGet packages for known vulnerabilities
+        run: |
+          dotnet restore CatalogExperiment.slnx
+          dotnet list CatalogExperiment.slnx package --vulnerable --include-transitive | tee vulnerabilities.txt
+          if grep -q "has the following vulnerable packages" vulnerabilities.txt; then
+            echo "Vulnerable packages found"
+            exit 1
+          fi
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan the current files for secrets (hard gate)
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect --source /repo --no-git --verbose
+      - name: Scan the full Git history for secrets (reported only)
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect --source /repo --verbose --exit-code 0
+
+  image-scan:
+    name: image-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Docker image
+        run: docker build -t catalog-api .
+      - name: Scan the image for CRITICAL vulnerabilities (hard gate)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --severity CRITICAL --ignore-unfixed --exit-code 1 catalog-api
+      - name: List HIGH vulnerabilities (reported only)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --severity HIGH --ignore-unfixed --exit-code 0 catalog-api
